@@ -5,7 +5,7 @@ import akka.persistence._
 
 import scala.collection.mutable
 
-class ReadNodeActor extends PersistentActor with ActorLogging {
+class ReadNodeActor extends PersistentActor with ClusterPackage with ActorLogging {
 
   override def persistenceId = "read"
   var state = mutable.Map("ping" -> "pong")
@@ -17,7 +17,7 @@ class ReadNodeActor extends PersistentActor with ActorLogging {
   　//PersistentActorのレシーブ
   override val receiveCommand: Receive = {
     case "Read" => state.toString()
-    case Event(f) => update(f)
+    case Evt(f) => ""
     case other => log.info("Receive other event : " + other.toString())
   }
   　
