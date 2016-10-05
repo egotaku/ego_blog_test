@@ -4,7 +4,7 @@
 		module="blogtest$sbt_2.11"
 		revision="1.0"
 		status="integration"
-		publication="20161004172645"
+		publication="20161005192304"
 	/>
 	<configurations>
 		<conf name="default" visibility="public"/>

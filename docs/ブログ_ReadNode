@@ -1,0 +1,131 @@
+
+事前準備
+
+ライブラリの設定
+build.sbt
+```
+libraryDependencies ++= Seq(
+  "com.typesafe.akka" %% "akka-persistence" % "2.4.8"
+  "com.typesafe.akka" %% "akka-cluster" % "2.4.8"
+  "com.typesafe.akka"   %% "akka-actor"      % "2.4.8"
+)
+```
+
+application.confの設定
+```
+akka {
+  loglevel = "INFO"
+  actor {
+    provider = "akka.cluster.ClusterActorRefProvider"
+  }
+  cluster {
+    auto-down-unreachable-after = 10s
+    seed-nodes = [
+      "akka.tcp://GenreHierarchyCluster@127.0.0.1:2551"
+      "akka.tcp://GenreHierarchyCluster@127.0.0.1:2552"
+    ]
+    client {
+      initial-contacts = [
+        "akka.tcp://AkkaCluster@127.0.0.1:2551/system/receptionist",
+        "akka.tcp://AkkaCluster@127.0.0.1:2552/system/receptionist"
+      ]
+      timeout = 1s
+    }
+  }
+}
+extensions = ["akka.cluster.client.ClusterClientReceptionist"]
+```
+
+
+Read側のノード
+```
+class ReadNodeActor extends PersistentActor with ActorLogging {
+
+  override def persistenceId = "read"
+  var state = mutable.Map("ping" -> "pong")
+
+  //mediatorのsubscribeに設定
+  val mediator = DistributedPubSub(context.system).mediator
+  mediator ! Subscribe("read", self)
+
+　//PersistentActorのレシーブ
+  override val receiveCommand: Receive = {
+    case "Read" => state.toString()
+    case Event(f) => update(f)
+    case other => log.info("Receive other event : " + other.toString())
+  }
+　
+  //リカバリー時のレシーブ、ノードのリカバリー時はここに呼ばれる
+  override val receiveRecover: Receive = {
+    case SnapshotOffer(_, snapshot: String) => {
+      log.info("Read node recovery start")
+    }
+    case RecoveryCompleted  =>
+      log.info("Read node recovery completed")
+    case RecoveryFailure(cause)    =>
+      log.error("Read node recovery failed : " + cause)
+  }
+
+  private def update(f: (A, B) => C) = {
+      f(state)
+  }
+}
+```
+
+ClusterServiceListener
+```
+class ClusterServiceListener(targetReceptionist: ActorRef) extends Actor {
+
+  override def preStart(): Unit = targetReceptionist ! SubscribeClusterClients
+
+  override def receive: Receive = {
+    def receiveWithClusterClients(clusterClients: Set[ActorRef]): Receive = {
+      case ClusterClients(cs) =>
+        context.become(receiveWithClusterClients(cs))
+      case ClusterClientUp(c) =>
+        context.become(receiveWithClusterClients(clusterClients + c))
+      case ClusterClientUnreachable(c) =>
+        context.become(receiveWithClusterClients(clusterClients - c))
+    }
+    receiveWithClusterClients(Set.empty)
+  }
+}
+```
+
+Write側のノード
+```
+class WriteNodeActor extends PersistentActor with ActorLogging {
+
+  override def persistenceId = "write"
+  var state = mutable.Map("ping" -> "pong")
+
+  //PersistentActorのレシーブ
+    override val receiveCommand: Receive = {
+      case Update(key, value) => update(key, value)
+      case other => log.info("Receive other event : " + other.toString())
+    }
+  　
+    //リカバリー時のレシーブ、ノードのリカバリー時はここに呼ばれる
+    override val receiveRecover: Receive = {
+      case SnapshotOffer(_, snapshot: String) => {
+        log.info("Read node recovery start")
+      }
+      case RecoveryCompleted  =>
+        log.info("Read node recovery completed")
+      case RecoveryFailure(cause)    =>
+        log.error("Read node recovery failed : " + cause)
+    }
+
+    def update(key: String, value: String) = {
+      state += (key -> value)
+    }
+    def publishToRead(event: (A, B) => C) = {
+      mediator ! Publish("read", Event(event))
+    }
+}
+```
+
+ClusterClient
+```
+
+```
